@@ -47,7 +47,15 @@ const initDOM = () => {
     SecondlyChart: document.querySelector('.second-btn'),
     timeChart: document.querySelector('.time-chart'),
     exportChartBtn: document.getElementById('export-chart-btn'),
-    exportReportBtn: document.getElementById('export-report-btn')
+    exportReportBtn: document.getElementById('export-report-btn'),
+    fotaContent: document.querySelector('#fota-modal .modal-content'),
+    // Upload dialog elements
+    uploadForm: document.getElementById('firmware-upload-form'),
+    uploadProgress: document.getElementById('upload-progress'),
+    progressFill: document.querySelector('.progress-fill'),
+    progressText: document.querySelector('.progress-text'),
+    tabBtns: document.querySelectorAll('.tab-btn'),
+    tabContents: document.querySelectorAll('.tab-content')
   };
   if (!DOM.fotaModal) console.error('fotaModal not found');
   if (!DOM.fotaBtn) console.error('fotaBtn not found');
@@ -59,8 +67,109 @@ const initDOM = () => {
 
 const updateUI = () => {
   if (!DOM) return;
-  DOM.fotaBtn.classList.toggle('active', statusProxy.StatusOTA);
-  DOM.loadingIcon.style.display = "block";
+  // Toggle trạng thái nút FOTA nếu tồn tại
+  if (DOM.fotaBtn) {
+    DOM.fotaBtn.classList.toggle('active', statusProxy.StatusOTA);
+  }
+  // Hiển thị icon loading nếu tồn tại
+  if (DOM.loadingIcon && DOM.loadingIcon.style) {
+    DOM.loadingIcon.style.display = "block";
+  }
+  
+  // Mở/đóng modal nếu tồn tại
+  if (DOM.fotaModal) {
+    DOM.fotaModal.style.display = statusProxy.StatusOTA ? "block" : "none";
+    
+    // Reset về tab upload và ẩn progress khi đóng modal
+    if (!statusProxy.StatusOTA) {
+      if (typeof switchTab === 'function') switchTab('upload');
+      if (DOM.uploadProgress && DOM.uploadProgress.style) {
+        DOM.uploadProgress.style.display = 'none';
+      }
+    }
+  }
+};
+
+// Upload Functions
+const uploadFirmware = async (formData) => {
+  try {
+    DOM.uploadProgress.style.display = 'block';
+    DOM.progressFill.style.width = '0%';
+    DOM.progressText.textContent = '0%';
+
+    const xhr = new XMLHttpRequest();
+    
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const percentComplete = (e.loaded / e.total) * 100;
+        DOM.progressFill.style.width = percentComplete + '%';
+        DOM.progressText.textContent = Math.round(percentComplete) + '%';
+      }
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 200) {
+        const response = JSON.parse(xhr.responseText);
+        if (response.success) {
+          DOM.progressFill.style.width = '100%';
+          DOM.progressText.textContent = '100%';
+          setTimeout(() => {
+            DOM.uploadProgress.style.display = 'none';
+            DOM.uploadForm.reset();
+            // Refresh version list
+            fetchFirmwareVersions();
+            // Switch to versions tab
+            switchTab('versions');
+          }, 1000);
+          console.log('✅ Firmware uploaded successfully:', response);
+        } else {
+          throw new Error(response.message);
+        }
+      } else {
+        throw new Error(`HTTP ${xhr.status}: ${xhr.statusText}`);
+      }
+    });
+
+    xhr.addEventListener('error', () => {
+      throw new Error('Network error during upload');
+    });
+
+    xhr.open('POST', '/api/firmware/upload');
+    xhr.send(formData);
+
+  } catch (error) {
+    console.error('❌ Upload error:', error);
+    DOM.uploadProgress.style.display = 'none';
+    alert('Lỗi khi tải lên firmware: ' + error.message);
+  }
+};
+
+const switchTab = (tabName) => {
+  // Remove active class from all tabs and contents
+  DOM.tabBtns.forEach(btn => btn.classList.remove('active'));
+  DOM.tabContents.forEach(content => content.classList.remove('active'));
+  
+  // Add active class to selected tab and content
+  const activeBtn = document.querySelector(`[data-tab="${tabName}"]`);
+  const activeContent = document.getElementById(`${tabName}-tab`);
+  
+  if (activeBtn) activeBtn.classList.add('active');
+  if (activeContent) activeContent.classList.add('active');
+  
+  // If switching to versions tab, refresh the list
+  if (tabName === 'versions') {
+    fetchFirmwareVersions();
+  }
+};
+
+const downloadFirmware = (version) => {
+  const link = document.createElement('a');
+  link.href = `/api/firmware/download/${encodeURIComponent(version)}`;
+  link.download = `${version}.bin`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  console.log(`📥 Downloading firmware: ${version}`);
 };
 
 // User Event Listeners
@@ -108,6 +217,43 @@ const initEventListeners = () => {
   }
   if (!DOM) return;
   console.log('Initializing event listeners...');
+  
+  // Tab switching
+  DOM.tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabName = btn.getAttribute('data-tab');
+      switchTab(tabName);
+    });
+  });
+  
+  // Upload form submission
+  if (DOM.uploadForm) {
+    DOM.uploadForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      
+      const formData = new FormData(DOM.uploadForm);
+      const versionName = formData.get('versionName');
+      const firmwareFile = formData.get('firmwareFile');
+      
+      if (!versionName.trim()) {
+        alert('Vui lòng nhập tên phiên bản');
+        return;
+      }
+      
+      if (!firmwareFile || firmwareFile.size === 0) {
+        alert('Vui lòng chọn file firmware');
+        return;
+      }
+      
+      if (!firmwareFile.name.endsWith('.bin')) {
+        alert('Chỉ cho phép file .bin');
+        return;
+      }
+      
+      uploadFirmware(formData);
+    });
+  }
+  
   DOM.fotaBtn.addEventListener('click', () => {
     isUpdatingUI = true;
     statusProxy.StatusOTA = !statusProxy.StatusOTA;
@@ -116,6 +262,8 @@ const initEventListeners = () => {
     if (DOM.fotaModal) {
       DOM.fotaModal.style.display = statusProxy.StatusOTA ? "block" : "none";
       if (statusProxy.StatusOTA) {
+        // Mở modal ở tab upload khi click FOTA
+        switchTab('upload');
         fetchFirmwareVersions();
       }
     } else {
@@ -129,19 +277,20 @@ const initEventListeners = () => {
     // }
     isUpdatingUI = true;
     statusProxy.StatusOTA = false;
-    DOM.fotaBtn.checked = false;
+    DOM.fotaBtn.classList.remove('active');
     sendUpEvent("OTA", statusProxy.StatusOTA);
     updateUI();
   });
   window.addEventListener('click', (event) => {
-    if (event.target === DOM.fotaModal && DOM.fotaModal) {
+    // Click ra ngoài vùng modal-content sẽ đóng modal
+    if (DOM.fotaModal && DOM.fotaContent && event.target === DOM.fotaModal) {
       // if (isUploadingFirmware) {
       //   console.warn("🚫 Không thể đóng modal khi OTA đang diễn ra.");
       //   return;
       // }
       isUpdatingUI = true;
       statusProxy.StatusOTA = false;
-      DOM.fotaBtn.checked = false;
+      DOM.fotaBtn.classList.remove('active');
       sendUpEvent("OTA", statusProxy.StatusOTA);
       updateUI();
     }
@@ -176,9 +325,17 @@ const initEventListeners = () => {
     DOM.HourlyChart.addEventListener('click', () => {
       console.log("Hourly chart clicked");
       updateChartStatus('hourly');
+      // Đặt mặc định ngày hôm nay nếu chưa chọn ngày
+      const now = new Date();
+      year = now.getFullYear();
+      month = now.getMonth() + 1;
+      day = now.getDate();
       fetchRealTimeDataHourly();
       modeChart = 1;
-      renderChart(modeChart);
+      // Chờ dữ liệu về sẽ render trong onmessage; nhưng nếu đã có sẵn thì render ngay
+      if (typeof hourlyAverages !== 'undefined') {
+        renderChart(modeChart);
+      }
     });
   } else {
     console.error('HourlyChart not found in DOM');
@@ -187,9 +344,15 @@ const initEventListeners = () => {
     DOM.DailyChart.addEventListener('click', () => {
       console.log("Daily chart clicked");
       updateChartStatus('daily');
+      // Đặt mặc định tháng hiện tại nếu chưa chọn tháng
+      const now = new Date();
+      year = now.getFullYear();
+      month = now.getMonth() + 1;
       fetchRealTimeDataDaily();
       modeChart = 2;
-      renderChart(modeChart);
+      if (typeof dailyAverages !== 'undefined') {
+        renderChart(modeChart);
+      }
     });
   } else {
     console.error('DailyChart not found in DOM');
@@ -516,39 +679,43 @@ const initHighcharts = () => {
   const generateAll24HourSeriesData = () => {
     const result = {
       Temperature: [],
-      WaterLevel: [],
-      TDS: [],
-      PH: [],
-      Conductivity: []
+      Humidity: [],
+      Pressure: [],
+      PM1: [],
+      PM25: [],
+      PM10: []
     };
     const hourlyData = generateChartDataFromHourlyAllMetrics();
     for (let i = 0; i < 24; i++) {
       const x = startOfToday + i * 3600 * 1000;
       result.Temperature.push({ x, y: hourlyData.Temperature[i] ?? null });
-      result.WaterLevel.push({ x, y: hourlyData.WaterLevel[i] ?? null });
-      result.TDS.push({ x, y: hourlyData.TDS[i] ?? null });
-      result.PH.push({ x, y: hourlyData.PH[i] ?? null });
-      result.Conductivity.push({ x, y: hourlyData.Conductivity[i] ?? null });
+      result.Humidity.push({ x, y: hourlyData.Humidity[i] ?? null });
+      result.Pressure.push({ x, y: hourlyData.Pressure[i] ?? null });
+      result.PM1.push({ x, y: hourlyData.PM1[i] ?? null });
+      result.PM25.push({ x, y: hourlyData.PM25[i] ?? null });
+      result.PM10.push({ x, y: hourlyData.PM10[i] ?? null });
     }
     return result;
   };
   const generateAll31DaySeriesData = () => {
     const result = {
       Temperature: [],
-      WaterLevel: [],
-      TDS: [],
-      PH: [],
-      Conductivity: []
+      Humidity: [],
+      Pressure: [],
+      PM1: [],
+      PM25: [],
+      PM10: []
     };
     const dailyData = generateChartDataFromDailyAllMetrics();
     const startDate = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     for (let i = 0; i < 31; i++) {
       const x = startDate + i * 24 * 3600 * 1000;
       result.Temperature.push({ x, y: dailyData.Temperature[i] ?? null });
-      result.WaterLevel.push({ x, y: dailyData.WaterLevel[i] ?? null });
-      result.TDS.push({ x, y: dailyData.TDS[i] ?? null });
-      result.PH.push({ x, y: dailyData.PH[i] ?? null });
-      result.Conductivity.push({ x, y: dailyData.Conductivity[i] ?? null });
+      result.Humidity.push({ x, y: dailyData.Humidity[i] ?? null });
+      result.Pressure.push({ x, y: dailyData.Pressure[i] ?? null });
+      result.PM1.push({ x, y: dailyData.PM1[i] ?? null });
+      result.PM25.push({ x, y: dailyData.PM25[i] ?? null });
+      result.PM10.push({ x, y: dailyData.PM10[i] ?? null });
     }
     return result;
   };
@@ -713,10 +880,11 @@ function getMonthlyDailyHourlyAverages(dataArray) {
     Array.from({ length: 31 }, () =>
       Array.from({ length: 24 }, () => ({
         Temperature: [],
-        WaterLevel: [],
-        TDS: [],
-        PH: [],
-        Conductivity: []
+        Humidity: [],
+        Pressure: [],
+        PM1: [],
+        PM25: [],
+        PM10: []
       }))
     )
   );
@@ -727,10 +895,11 @@ function getMonthlyDailyHourlyAverages(dataArray) {
     const hour = date.getHours();
     if (month >= 1 && month <= 12 && day >= 1 && day <= 30 && hour >= 0 && hour < 24) {
       monthlyDailyHourlyData[month][day][hour].Temperature.push(entry.Temperature);
-      monthlyDailyHourlyData[month][day][hour].WaterLevel.push(entry.WaterLevel);
-      monthlyDailyHourlyData[month][day][hour].TDS.push(entry.TDS);
-      monthlyDailyHourlyData[month][day][hour].PH.push(entry.PH);
-      monthlyDailyHourlyData[month][day][hour].Conductivity.push(entry.Conductivity);
+      monthlyDailyHourlyData[month][day][hour].Humidity.push(entry.Humidity);
+      monthlyDailyHourlyData[month][day][hour].Pressure.push(entry.Pressure);
+      monthlyDailyHourlyData[month][day][hour].PM1.push(entry.PM1);
+      monthlyDailyHourlyData[month][day][hour].PM25.push(entry.PM25);
+      monthlyDailyHourlyData[month][day][hour].PM10.push(entry.PM10);
     }
   });
   const average = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
@@ -743,10 +912,11 @@ function getMonthlyDailyHourlyAverages(dataArray) {
         day: d,
         hour: h,
         Temperature: average(hourData.Temperature),
-        WaterLevel: average(hourData.WaterLevel),
-        TDS: average(hourData.TDS),
-        PH: average(hourData.PH),
-        Conductivity: average(hourData.Conductivity)
+        Humidity: average(hourData.Humidity),
+        Pressure: average(hourData.Pressure),
+        PM1: average(hourData.PM1),
+        PM25: average(hourData.PM25),
+        PM10: average(hourData.PM10)
       }));
     });
   });
@@ -760,10 +930,11 @@ function getMonthlyDailyAverages(dataArray) {
   const monthlyDailyData = Array.from({ length: 13 }, () =>
     Array.from({ length: 31 }, () => ({
       Temperature: [],
-      WaterLevel: [],
-      TDS: [],
-      PH: [],
-      Conductivity: []
+      Humidity: [],
+      Pressure: [],
+      PM1: [],
+      PM25: [],
+      PM10: []
     }))
   );
   dataArray.forEach(entry => {
@@ -772,10 +943,11 @@ function getMonthlyDailyAverages(dataArray) {
     const day = date.getDate();
     if (month >= 1 && month <= 12 && day >= 1 && day <= 30) {
       monthlyDailyData[month][day].Temperature.push(entry.Temperature);
-      monthlyDailyData[month][day].WaterLevel.push(entry.WaterLevel);
-      monthlyDailyData[month][day].TDS.push(entry.TDS);
-      monthlyDailyData[month][day].PH.push(entry.PH);
-      monthlyDailyData[month][day].Conductivity.push(entry.Conductivity);
+      monthlyDailyData[month][day].Humidity.push(entry.Humidity);
+      monthlyDailyData[month][day].Pressure.push(entry.Pressure);
+      monthlyDailyData[month][day].PM1.push(entry.PM1);
+      monthlyDailyData[month][day].PM25.push(entry.PM25);
+      monthlyDailyData[month][day].PM10.push(entry.PM10);
     }
   });
   const average = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
@@ -787,10 +959,11 @@ function getMonthlyDailyAverages(dataArray) {
         month: monthIdx,
         day: dayIdx,
         Temperature: average(dayData.Temperature),
-        WaterLevel: average(dayData.WaterLevel),
-        TDS: average(dayData.TDS),
-        PH: average(dayData.PH),
-        Conductivity: average(dayData.Conductivity)
+        Humidity: average(dayData.Humidity),
+        Pressure: average(dayData.Pressure),
+        PM1: average(dayData.PM1),
+        PM25: average(dayData.PM25),
+        PM10: average(dayData.PM10)
       };
     });
   });
@@ -815,14 +988,15 @@ function getDailyValue(month, day, key) {
 function generateChartDataFromHourlyAllMetrics() {
   const result = {
     Temperature: [],
-    WaterLevel: [],
-    TDS: [],
-    PH: [],
-    Conductivity: []
+    Humidity: [],
+    Pressure: [],
+    PM1: [],
+    PM25: [],
+    PM10: []
   };
   if (!year || !month || !day) return result;
   for (let h = 0; h < 24; h++) {
-    ['Temperature', 'WaterLevel', 'TDS', 'PH', 'Conductivity'].forEach(key => {
+    ['Temperature', 'Humidity', 'Pressure', 'PM1', 'PM25', 'PM10'].forEach(key => {
       const value = getHourlyValue(month, day, h, key);
       result[key].push(value);
     });
@@ -833,14 +1007,15 @@ function generateChartDataFromHourlyAllMetrics() {
 function generateChartDataFromDailyAllMetrics() {
   const result = {
     Temperature: [],
-    WaterLevel: [],
-    TDS: [],
-    PH: [],
-    Conductivity: []
+    Humidity: [],
+    Pressure: [],
+    PM1: [],
+    PM25: [],
+    PM10: []
   };
   if (!year || !month) return result;
   for (let d = 1; d <= 31; d++) {
-    ['Temperature', 'WaterLevel', 'TDS', 'PH', 'Conductivity'].forEach(key => {
+    ['Temperature', 'Humidity', 'Pressure', 'PM1', 'PM25', 'PM10'].forEach(key => {
       const value = getDailyValue(month, d, key);
       result[key].push(value);
     });
@@ -993,31 +1168,56 @@ socket.onmessage = (event) => {
             DOM.versionList.innerHTML = '<p>Không có phiên bản firmware nào.</p>';
           } else {
             const ul = document.createElement('ul');
-            data.versions.forEach(version => {
+            data.versions.forEach(firmware => {
               const li = document.createElement('li');
-              const versionText = document.createElement('span');
-              versionText.textContent = `Version ${version}`;
-              li.appendChild(versionText);
+              
+              // Version info
+              const versionInfo = document.createElement('div');
+              versionInfo.className = 'version-info';
+              
+              const versionName = document.createElement('div');
+              versionName.className = 'version-name';
+              versionName.textContent = firmware.version;
+              
+              const versionMeta = document.createElement('div');
+              versionMeta.className = 'version-meta';
+              const uploadDate = new Date(firmware.uploadDate).toLocaleDateString('vi-VN');
+              const fileSize = (firmware.fileSize / 1024).toFixed(1);
+              versionMeta.textContent = `${uploadDate} • ${fileSize} KB`;
+              
+              versionInfo.appendChild(versionName);
+              versionInfo.appendChild(versionMeta);
+              li.appendChild(versionInfo);
+              
+              // Action buttons
+              const versionActions = document.createElement('div');
+              versionActions.className = 'version-actions';
+              
+              const downloadButton = document.createElement('button');
+              downloadButton.className = 'btn-download';
+              downloadButton.innerHTML = '<i class="fas fa-download"></i> Download';
+              downloadButton.addEventListener('click', () => {
+                downloadFirmware(firmware.version);
+              });
+              
               const uploadButton = document.createElement('button');
-              uploadButton.textContent = 'Upload';
-              uploadButton.style.marginLeft = '10px';
-              uploadButton.style.backgroundColor = '#4CAF50';
-              uploadButton.style.color = 'white';
-              uploadButton.style.border = 'none';
-              uploadButton.style.padding = '5px 10px';
-              uploadButton.style.cursor = 'pointer';
-              uploadButton.style.borderRadius = '3px';
+              uploadButton.className = 'btn-upload';
+              uploadButton.innerHTML = '<i class="fas fa-upload"></i> OTA';
               uploadButton.addEventListener('click', () => {
                 isUploadingFirmware = true;
-                console.log(`Upload clicked for Version ${version}`);
-                sendUploadEventToServer(version);
+                console.log(`OTA clicked for Version ${firmware.version}`);
+                sendUploadEventToServer(firmware.version);
                 const uploadStatus = document.getElementById('upload-status');
                 if (uploadStatus) {
                   uploadStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang tiến hành OTA...';
                   uploadStatus.style.color = 'orange';
                 }
               });
-              li.appendChild(uploadButton);
+              
+              versionActions.appendChild(downloadButton);
+              versionActions.appendChild(uploadButton);
+              li.appendChild(versionActions);
+              
               ul.appendChild(li);
             });
             DOM.versionList.appendChild(ul);
@@ -1047,10 +1247,18 @@ socket.onmessage = (event) => {
       case 'get-real-time-data-daily':
         DailyData = data.realDailyData;
         dailyAverages = getMonthlyDailyAverages(DailyData);
+        // Nếu đang ở chế độ daily, render lại biểu đồ ngay khi có dữ liệu
+        if (modeChart === 2) {
+          renderChart(modeChart);
+        }
         break;
       case 'get-real-time-data-hourly':
         HourlyData = data.realHourlyData;
         hourlyAverages = getMonthlyDailyHourlyAverages(HourlyData);
+        // Nếu đang ở chế độ hourly, render lại biểu đồ ngay khi có dữ liệu
+        if (modeChart === 1) {
+          renderChart(modeChart);
+        }
         break;
       default:
         console.warn("⚠️ Unknown message type:", data.type);
@@ -1068,15 +1276,7 @@ socket.onopen = () => {
 
 
 
-function initStreamMonitor(ip) {
-  const img = document.createElement('img');
-  img.src = `http://${ip}/stream`;
-  img.style.width = '100%';
-  img.style.height = '100%';
-  img.style.borderRadius = '12px';
-  DOM.streamMonitor.innerHTML = '';
-  DOM.streamMonitor.appendChild(img);
-}
+// ESP32-CAM related code removed
 
 // Page Load Event
 document.addEventListener('DOMContentLoaded', init);

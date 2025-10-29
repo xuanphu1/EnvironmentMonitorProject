@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Aqua Dashboard</title>
+  <title>Environment Monitor Dashboard</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet" />
   <link href='https://fonts.googleapis.com/css?family=Roboto' rel='stylesheet' type='text/css'>
@@ -44,7 +44,7 @@
               <span id="wind-value"></span>
             </p>
           </div>
-          <img id="Icon_Loading" src="/imgs/9PrD.gif" alt="icon" />
+          <!-- <img id="Icon_Loading" src="/imgs/9PrD.gif" alt="icon" /> -->
         </div>
 
         <div>
@@ -127,9 +127,49 @@
     <div class="modal-content">
       <span class="close">×</span>
       <h2>Firmware OTA</h2>
-      <!-- Danh sách các phiên bản hiện có -->
-      <div id="versionList" class="version-list"></div>
-      <p id="upload-status"></p>
+      
+      <!-- Tab Navigation -->
+      <div class="tab-navigation">
+        <button class="tab-btn active" data-tab="upload">Upload Firmware</button>
+        <button class="tab-btn" data-tab="versions">Firmware Versions</button>
+      </div>
+      
+      <!-- Upload Tab -->
+      <div id="upload-tab" class="tab-content active">
+        <div class="upload-form">
+          <h3>Upload New Firmware</h3>
+          <form id="firmware-upload-form" enctype="multipart/form-data">
+            <div class="form-group">
+              <label for="version-name">Version Name:</label>
+              <input type="text" id="version-name" name="versionName" placeholder="e.g., v1.2.3" required>
+            </div>
+            <div class="form-group">
+              <label for="firmware-file">Firmware File (.bin):</label>
+              <input type="file" id="firmware-file" name="firmwareFile" accept=".bin" required>
+            </div>
+            <div class="form-group">
+              <label for="description">Description (Optional):</label>
+              <textarea id="description" name="description" placeholder="Mô tả về phiên bản firmware..."></textarea>
+            </div>
+            <button type="submit" class="upload-btn">
+              <i class="fas fa-upload"></i> Upload Firmware
+            </button>
+          </form>
+          <div id="upload-progress" class="upload-progress" style="display: none;">
+            <div class="progress-bar">
+              <div class="progress-fill"></div>
+            </div>
+            <span class="progress-text">0%</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Versions Tab -->
+      <div id="versions-tab" class="tab-content">
+        <h3>Available Firmware Versions</h3>
+        <div id="versionList" class="version-list"></div>
+        <p id="upload-status"></p>
+      </div>
     </div>
   </div>
 

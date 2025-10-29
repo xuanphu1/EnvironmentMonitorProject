@@ -1,26 +1,164 @@
 const express = require('express');
 const path = require('path');
 const WebSocket = require('ws');
+const multer = require('multer');
+const crypto = require('crypto');
 
 const app = express();
 
 let TemperatureValue = 50, HumidityValue = 0, PressureValue = 0, PM1Value = 0, PM25Value = 0, PM10Value = 0, Time = "";
-let ipESP32CAM = "";
 const {
   getAllVersions,
   getDataFirmware,
   getRealTimeData,
-  saveRealTimeData
+  saveRealTimeData,
+  saveFirmware,
+  getFirmwareByVersion
 } = require("./models/mongodb");
 const { Console } = require('console');
 
 app.use(express.json());
+
+// Configure multer for file uploads
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/octet-stream' || file.originalname.endsWith('.bin')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Chỉ cho phép file .bin'), false);
+    }
+  }
+});
 
 app.get('/', (req, res) => {
   res.sendFile(path.resolve(__dirname, 'pages/index.html'));
 });
 
 app.use(express.static('public'));
+
+// Upload firmware endpoint
+app.post('/api/firmware/upload', upload.single('firmwareFile'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Không có file được tải lên' });
+    }
+
+    const { versionName, description } = req.body;
+    
+    if (!versionName) {
+      return res.status(400).json({ success: false, message: 'Tên phiên bản là bắt buộc' });
+    }
+
+    // Convert buffer to hex string
+    const hexData = req.file.buffer.toString('hex');
+    
+    // Calculate checksum
+    const checksum = crypto.createHash('md5').update(req.file.buffer).digest('hex');
+    
+    // Save to database
+    await saveFirmware(
+      versionName,
+      hexData,
+      description || '',
+      req.file.originalname,
+      req.file.size,
+      checksum
+    );
+
+    console.log(`✅ Firmware ${versionName} uploaded successfully`);
+    res.json({ 
+      success: true, 
+      message: 'Firmware đã được tải lên thành công',
+      version: versionName,
+      fileSize: req.file.size,
+      checksum: checksum
+    });
+
+  } catch (error) {
+    console.error('❌ Upload error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Lỗi khi tải lên firmware: ' + error.message 
+    });
+  }
+});
+
+// Download firmware endpoint for ESP32
+app.get('/api/firmware/download/:version', async (req, res) => {
+  try {
+    const { version } = req.params;
+    
+    const firmware = await getFirmwareByVersion(version);
+    
+    if (!firmware) {
+      return res.status(404).json({ 
+        success: false, 
+        message: `Không tìm thấy firmware version: ${version}` 
+      });
+    }
+
+    // Convert hex string back to buffer
+    const buffer = Buffer.from(firmware.DataHex, 'hex');
+    
+    // Set headers for file download
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${firmware.FileName || version}.bin"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('X-Firmware-Version', firmware.Version);
+    res.setHeader('X-Firmware-Checksum', firmware.Checksum);
+    res.setHeader('X-Firmware-Size', firmware.FileSize);
+    
+    console.log(`📥 Firmware ${version} downloaded by ESP32`);
+    res.send(buffer);
+
+  } catch (error) {
+    console.error('❌ Download error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Lỗi khi tải xuống firmware: ' + error.message 
+    });
+  }
+});
+
+// Get firmware info endpoint
+app.get('/api/firmware/info/:version', async (req, res) => {
+  try {
+    const { version } = req.params;
+    
+    const firmware = await getFirmwareByVersion(version);
+    
+    if (!firmware) {
+      return res.status(404).json({ 
+        success: false, 
+        message: `Không tìm thấy firmware version: ${version}` 
+      });
+    }
+
+    res.json({
+      success: true,
+      firmware: {
+        version: firmware.Version,
+        description: firmware.Description,
+        fileName: firmware.FileName,
+        fileSize: firmware.FileSize,
+        uploadDate: firmware.UploadDate,
+        checksum: firmware.Checksum
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Info error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Lỗi khi lấy thông tin firmware: ' + error.message 
+    });
+  }
+});
 
 const port = 3000;
 app.listen(port, () => {
@@ -37,6 +175,13 @@ wss.on('connection', (ws) => {
     try {
       const data = JSON.parse(message);
       console.log('Received:', data);
+
+      // Auto-assign clientType from incoming payload if not registered yet
+      if (!ws.clientType && data.clientType) {
+        ws.clientType = data.clientType;
+        clients.set(ws, ws.clientType);
+        console.log(`Client auto-registered as: ${ws.clientType}`);
+      }
 
       if (data.type === 'register') {
         ws.clientType = data.clientType;
@@ -125,8 +270,7 @@ wss.on('connection', (ws) => {
                 Pressure: Number(PressureValue),
                 PM1: Number(PM1Value),
                 PM25: Number(PM25Value),
-                PM10: Number(PM10Value),
-                ipESP32CAM: ipESP32CAM
+                PM10: Number(PM10Value)
               }
             }));
             console.log('📡 Sent current status to Frontend for sync-request');
@@ -149,13 +293,14 @@ wss.on('connection', (ws) => {
 
         switch (data.type) {
           case 'DataFromESP32':
-            Time = data.Time;
-            TemperatureValue = Number(parseFloat(data.Temperature || TemperatureValue));
-            HumidityValue = Number(parseFloat(data.Humidity || HumidityValue));
-            PressureValue = Number(parseFloat(data.Pressure || PressureValue));
-            PM1Value = Number(parseFloat(data.PM1 || PM1Value));
-            PM25Value = Number(parseFloat(data.PM25 || PM25Value));
-            PM10Value = Number(parseFloat(data.PM10 || PM10Value));
+            Time = data.Time || new Date().toISOString();
+            TemperatureValue = Number(parseFloat((data.Temperature ?? TemperatureValue)));
+            HumidityValue = Number(parseFloat((data.Humidity ?? HumidityValue)));
+            PressureValue = Number(parseFloat((data.Pressure ?? PressureValue)));
+            // Map PM1_0 -> PM1, PM2_5 -> PM25 if present
+            PM1Value = Number(parseFloat((data.PM1 ?? data.PM1_0 ?? PM1Value)));
+            PM25Value = Number(parseFloat((data.PM25 ?? data.PM2_5 ?? PM25Value)));
+            PM10Value = Number(parseFloat((data.PM10 ?? PM10Value)));
 
             const fullStatus = {
               type: "status-all",
@@ -189,21 +334,6 @@ wss.on('connection', (ws) => {
           PM10: PM10Value
         };
         saveRealTimeData(JSON.stringify(DataRealTime));
-      } else if (ws.clientType === 'esp32cam') {
-
-        switch (data.type) {
-          case 'esp32cam-ip':
-            const ipData = {
-              type: "esp32cam-ip",
-              data: data.ip
-            };
-            ipESP32CAM = data.ip;
-            break;
-
-          default:
-            console.warn('Unknown ESP32CAM message type:', data.type);
-        }
-
       }
     } catch (error) {
       console.error('Error parsing message:', error);

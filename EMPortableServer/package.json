@@ -1,12 +1,13 @@
 {
-  "name": "aquasensor",
+  "name": "environment-monitor",
   "version": "1.0.0",
-  "description": "",
+  "description": "Environment Monitor Dashboard - Real-time environmental sensor data monitoring with ESP32 integration",
   "main": "Server.js",
   "scripts": {
-    "start": "nodemon index.js"
+    "start": "node Server.js",
+    "dev": "nodemon Server.js"
   },
-  "keywords": [],
+  "keywords": ["environment", "monitoring", "esp32", "iot", "dashboard", "sensors"],
   "author": "",
   "license": "ISC",
   "dependencies": {

@@ -3,15 +3,25 @@ mongoose.connect("mongodb://localhost:27017/EnvironmentMonitor");
 
 const FirmwareSchema = new mongoose.Schema({
   ID: String,
-  Version: Number,
-  DataHex: String
+  Version: String, // Changed from Number to String to support version names like "v1.2.3"
+  DataHex: String,
+  Description: String, // Added description field
+  FileName: String, // Added original filename
+  FileSize: Number, // Added file size
+  UploadDate: { type: Date, default: Date.now }, // Added upload date
+  Checksum: String // Added checksum for file integrity
 });
 
 const FirmwareModel = mongoose.model("Firmware", FirmwareSchema, "FirmwareOTA");
 
 async function getAllVersions() {
-  const docs = await FirmwareModel.find({}, "Version");
-  return docs.map(d => d.Version).sort((a, b) => a - b);
+  const docs = await FirmwareModel.find({}, "Version Description UploadDate FileSize").sort({ UploadDate: -1 });
+  return docs.map(d => ({
+    version: d.Version,
+    description: d.Description,
+    uploadDate: d.UploadDate,
+    fileSize: d.FileSize
+  }));
 }
 
 async function getDataFirmware(version) {
@@ -26,6 +36,38 @@ async function getDataFirmware(version) {
     return doc.DataHex;
   } catch (error) {
     console.error("Lỗi khi truy vấn DataHex:", error);
+    throw error;
+  }
+}
+
+async function saveFirmware(version, dataHex, description, fileName, fileSize, checksum) {
+  try {
+    const firmware = new FirmwareModel({
+      ID: "Firmware",
+      Version: version,
+      DataHex: dataHex,
+      Description: description,
+      FileName: fileName,
+      FileSize: fileSize,
+      Checksum: checksum,
+      UploadDate: new Date()
+    });
+
+    await firmware.save();
+    console.log(`✅ Firmware ${version} đã được lưu vào database`);
+    return firmware;
+  } catch (error) {
+    console.error("❌ Lỗi khi lưu firmware:", error.message);
+    throw error;
+  }
+}
+
+async function getFirmwareByVersion(version) {
+  try {
+    const doc = await FirmwareModel.findOne({ Version: version });
+    return doc;
+  } catch (error) {
+    console.error("Lỗi khi truy vấn firmware:", error);
     throw error;
   }
 }
@@ -76,4 +118,11 @@ async function getRealTimeData() {
   }
 }
 
-module.exports = { getAllVersions, saveRealTimeData, getDataFirmware, getRealTimeData }
+module.exports = { 
+  getAllVersions, 
+  saveRealTimeData, 
+  getDataFirmware, 
+  getRealTimeData, 
+  saveFirmware, 
+  getFirmwareByVersion 
+}

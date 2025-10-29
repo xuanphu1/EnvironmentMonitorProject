@@ -1,4 +1,4 @@
-# AquaDTB Dashboard
+# Environment Monitor Dashboard
 
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-green?logo=node.js)
 ![MongoDB](https://img.shields.io/badge/MongoDB-%3E%3D4.0-green?logo=mongodb)
@@ -7,52 +7,57 @@
 
 ---
 
-**AquaDTB Dashboard** is a control and monitoring dashboard project for devices, displaying environmental sensor data collected from ESP32, with OTA firmware capability, device control, timer management, and real-time data monitoring.
+**Environment Monitor Dashboard** is a comprehensive environmental monitoring system that collects and displays real-time sensor data from ESP32 devices, featuring OTA firmware updates, device control, and advanced data visualization.
 
 The project includes:
 - **Backend**: Node.js + Express + WebSocket + MongoDB
 - **Frontend**: Pure HTML/CSS/JS, real-time via WebSocket, using UI libraries such as Highcharts, ProgressBar, Flatpickr...
-- **Database**: MongoDB stores sensor data, firmware, timer schedules.
+- **Database**: MongoDB stores sensor data, firmware, and device configurations.
 
 ---
 
 ## 🚩 Key Features
 
-- **Realtime Dashboard**:  
-  - Displays temperature, pH, TDS, conductivity, and water level data sent from ESP32.
-  - Plots charts directly with modes: real-time, hourly/daily average.
-- **Device Control**:
-  - Toggle Fan, Light, Heater, Pump, Filter, Feeder; switch between Auto/Manual, OTA.
-  - Status updates and two-way synchronization between Dashboard ↔️ ESP32.
-- **OTA Firmware**:  
-  - Select and update firmware from the dashboard, send .hex files to ESP32 line by line, and show OTA progress.
-- **Timer Management**:  
-  - Set operating schedules for each device.
-  - View, add, delete timers, and synchronize with ESP32.
-- **ESP32-CAM Stream Support** (if available).
-- **Store and retrieve historical data from MongoDB, compute averages/statistics by day, month.**
+- **Real-time Environmental Monitoring**:  
+  - Displays temperature, humidity, pressure, PM1.0, PM2.5, PM10 data from ESP32 sensors
+  - Interactive charts with real-time, hourly, and daily data views
+- **Firmware Management**:
+  - Upload firmware files (.bin) through web interface
+  - OTA (Over-The-Air) updates for ESP32 devices
+  - Version management and download APIs
+- **Data Visualization**:
+  - Real-time charts with Highcharts
+  - Export charts and reports
+  - Historical data analysis
+- **ESP32-CAM Integration** (optional)
+- **Weather API Integration**
+- **Responsive Design** with modern glassmorphism UI
 
 ---
 
 ## 🏗 Project Structure
 
-AquaDTB/
-├── backend/
-│ ├── server.js # Express + WebSocket server
-│ └── models/
-│ └── mongodb.js # MongoDB operations
+```
+EMPortableServer/
+├── Server.js              # Main Express + WebSocket server
+├── models/
+│   └── mongodb.js         # MongoDB operations and schemas
 ├── public/
-│ ├── index.js # Main frontend JS
-│ ├── style.css # CSS
-│ └── ... (icons, images)
+│   ├── index.js          # Frontend JavaScript
+│   ├── style.css         # Styling and UI components
+│   └── imgs/             # Images and icons
 ├── pages/
-│ └── index.html # Dashboard UI
+│   └── index.html        # Main dashboard interface
+├── controllers/           # (Available for future use)
+├── routers/              # (Available for future use)
+├── configs/              # (Available for future use)
 └── README.md
+```
 
-- **server.js**: REST API and WebSocket, receives data from ESP32, sends data to frontend, manages multi-client connections.
-- **mongodb.js**: Schema definition and CRUD operations for sensor data, firmware, and timers.
-- **public/index.js**: WebSocket connection, DOM updates, UI controls, chart logic.
-- **index.html**: Dashboard interface.
+- **Server.js**: REST API and WebSocket server, handles ESP32 data, manages multi-client connections
+- **mongodb.js**: Database schemas and CRUD operations for sensor data and firmware
+- **public/index.js**: WebSocket client, DOM manipulation, chart rendering, UI controls
+- **index.html**: Modern dashboard interface with upload capabilities
 
 ---
 
@@ -62,106 +67,149 @@ AquaDTB/
 
 - Node.js >= 18
 - MongoDB >= 4.0 (local or cloud)
-- ESP32 (running firmware that sends data via WebSocket or HTTP)
-- Modern browser (Edge/Chrome/Firefox...)
+- ESP32 with environmental sensors
+- Modern browser (Chrome/Firefox/Edge)
 
-### 2. Clone and Install
+### 2. Installation & Setup
 
 ```bash
-git clone https://github.com/yourusername/AquaDTB.git
-cd AquaDTB
+# Clone the repository
+git clone https://github.com/yourusername/EnvironmentMonitor.git
+cd EnvironmentMonitor
 
-# Install backend dependencies
+# Install dependencies
 npm install
 
 # Start MongoDB (default localhost:27017)
-# Or configure URI in ./models/mongodb.js if using cloud
+# Configure connection in ./models/mongodb.js if using cloud MongoDB
 
-# Start backend server
-node backend/server.js
-# Default port 3000 (HTTP), port 8080 (WebSocket)
+# Start the server
+node Server.js
+# Server runs on port 3000 (HTTP) and 8080 (WebSocket)
 
-# Access dashboard at:
+# Access the dashboard
 http://localhost:3000/
-If you want to build a separate frontend or use a framework, you can reorganize the /public folder.
+```
 
-🖥 Basic Configuration
-MongoDB:
+### 3. Basic Configuration
 
-Database: AquaDTB
+**MongoDB Database**: `EnvironmentMonitor`
 
-Collections:
+**Collections**:
+- `FirmwareOTA`: Stores firmware versions and binary data
+- `RealTimeData`: Stores sensor readings and timestamps
 
-FirmwareOTA: stores firmware versions and content
-
-RealTimeData: stores sensor data, timers
-
-WebSocket Port: ws://localhost:8080
-
-HTTP Port: http://localhost:3000
-
-🧩 API / WebSocket Communication
-Client registration:
-Send { type: 'register', clientType: 'frontend' | 'esp32' | 'esp32cam' }
-→ Used to distinguish client types and handle the correct data stream.
-
-Main message types:
-
-Message Type	From	To	Description / Main Payload
-device-status	FE	ESP32	Device control (Fan, Light, ...)
-status-all	ESP32	FE	Send current status (sensor + device)
-firmware-versions	FE	BE	Get firmware version list from DB
-ota	FE	ESP32	Send firmware line by line to ESP32
-Timer-device	FE	ESP32, FE	Save new timer and broadcast update
-get-timers	FE	BE	Get timer list
-delete-timer	FE	BE, ESP32	Delete timer
-get-real-time-data-*	FE	BE	Get sensor data (hourly/daily)
-reset-all	FE	ESP32, FE	Reset all statuses
-
-All communication is real-time, fully synchronized in both directions between Dashboard, ESP32, and database.
-
-📊 Dashboard Interface
-Intuitive display of device status.
-
-Real-time or historical charts for temperature, pH, TDS, water level, conductivity (view by hour/day/month).
-
-Device control switches/toggles, OTA, auto/manual.
-
-Timer management for each device.
-
-OTA modal: select version, upload, view update progress.
-
-(You may add dashboard screenshots here)
-
-🚚 Further Development
-Easily extendable for more sensors/devices.
-
-Supports multiple frontend clients concurrently.
-
-Add authentication (token, password).
-
-Deploy on cloud, or open port for remote access.
-
-Integrate with other services (Telegram, Zalo, Email notification...).
-
-📑 Developer Notes
-The database model stores three main types: sensor data, firmware, and timers.
-
-All data is synchronized continuously, each ESP32 data packet is saved to DB.
-
-Manages device status in real-time, supports both auto/manual mode.
-
-Code is optimized for efficient data flow with multiple clients (FE, ESP32, ESP32CAM) connecting via WebSocket.
-
-📄 License
-Open source, free for educational and research purposes.
-
-👨‍💻 Contact & Contribution
-For suggestions, bug reports, or new feature ideas, please create an Issue or Pull Request.
-
-(You may add contact info, email, or group information here.)
+**Ports**:
+- HTTP: `http://localhost:3000`
+- WebSocket: `ws://localhost:8080`
 
 ---
 
-**You can copy and use this file directly!**  
-If you want the project name or any wording adjusted, just tell me.
+## 🧩 API Endpoints
+
+### Firmware Management
+- `POST /api/firmware/upload` - Upload new firmware
+- `GET /api/firmware/download/:version` - Download firmware for ESP32
+- `GET /api/firmware/info/:version` - Get firmware information
+
+### WebSocket Communication
+**Client Registration**:
+```javascript
+{ type: 'register', clientType: 'frontend' | 'esp32' }
+```
+
+**Message Types**:
+| Message Type | From | To | Description |
+|-------------|------|----|-----------| 
+| `status-all` | ESP32 | Frontend | Send sensor data |
+| `firmware-versions` | Frontend | Backend | Get firmware list |
+| `ota` | Frontend | ESP32 | Send firmware update |
+| `get-real-time-data-hourly` | Frontend | Backend | Get hourly data |
+| `get-real-time-data-daily` | Frontend | Backend | Get daily data |
+
+---
+
+## 📊 Dashboard Features
+
+- **Real-time Sensor Display**: Live updates of environmental data
+- **Interactive Charts**: Switch between real-time, hourly, and daily views
+- **Firmware Upload**: Drag-and-drop .bin file upload with progress tracking
+- **Version Management**: View, download, and deploy firmware versions
+- **Data Export**: Export charts and generate reports
+- **Weather Integration**: Current weather conditions display
+- **Responsive Design**: Works on desktop and mobile devices
+
+---
+
+## 🔧 ESP32 Integration
+
+### Sensor Data Format
+```json
+{
+  "type": "DataFromESP32",
+  "Time": "2024-01-15T10:30:00Z",
+  "Temperature": 25.5,
+  "Humidity": 60.2,
+  "Pressure": 1013.25,
+  "PM1": 15.3,
+  "PM25": 22.1,
+  "PM10": 35.7
+}
+```
+
+### Firmware Download
+```cpp
+// ESP32 code example
+HTTPClient http;
+http.begin("http://YOUR_SERVER_IP:3000/api/firmware/download/v1.2.3");
+int httpCode = http.GET();
+if (httpCode == HTTP_CODE_OK) {
+  // Process firmware data for OTA update
+}
+```
+
+---
+
+## 🚀 Advanced Features
+
+- **Multi-client Support**: Handle multiple ESP32 devices simultaneously
+- **Real-time Synchronization**: Bidirectional data flow between devices and dashboard
+- **File Integrity**: MD5 checksum verification for firmware files
+- **Error Handling**: Comprehensive error management and user feedback
+- **Scalable Architecture**: Easy to extend with additional sensors and features
+
+---
+
+## 🔒 Security & Validation
+
+- File upload validation (.bin files only)
+- File size limits (10MB maximum)
+- MD5 checksum verification
+- Input sanitization and validation
+- Error handling and logging
+
+---
+
+## 📈 Future Development
+
+- [ ] User authentication and authorization
+- [ ] Multi-user support with role-based access
+- [ ] Advanced analytics and machine learning
+- [ ] Mobile app development
+- [ ] Cloud deployment options
+- [ ] Integration with IoT platforms
+- [ ] Automated alerting and notifications
+
+---
+
+## 📄 License
+
+Open source, free for educational and research purposes.
+
+---
+
+## 👨‍💻 Contact & Contribution
+
+For suggestions, bug reports, or feature requests, please create an Issue or Pull Request.
+
+**Environment Monitor Dashboard** - Monitoring the world around us, one sensor at a time! 🌍📊
