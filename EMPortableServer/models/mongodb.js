@@ -72,6 +72,16 @@ async function getFirmwareByVersion(version) {
   }
 }
 
+async function deleteFirmwareByVersion(version) {
+  try {
+    const result = await FirmwareModel.deleteOne({ Version: version });
+    return { deletedCount: result.deletedCount };
+  } catch (error) {
+    console.error("Lỗi khi xóa firmware:", error);
+    throw error;
+  }
+}
+
 const Real_Data = new mongoose.Schema({
   ID: String,
   Time: String,
@@ -124,5 +134,6 @@ module.exports = {
   getDataFirmware, 
   getRealTimeData, 
   saveFirmware, 
-  getFirmwareByVersion 
+  getFirmwareByVersion,
+  deleteFirmwareByVersion 
 }

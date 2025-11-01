@@ -4,6 +4,9 @@ static esp_websocket_client_handle_t client = NULL;
 
 #define TAG_WEBSOCKET "WebSocket Handler"
 
+// Lưu giá trị cuối cùng nhận được từ WS
+static char ws_last_type[32] = {0};
+static char ws_last_version[32] = {0};
 
 void SendSignalRegister(void) {
   cJSON *data = cJSON_CreateObject();
@@ -46,8 +49,49 @@ static void websocket_event_handler(void *arg, esp_event_base_t base,
   esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
 
   switch (event_id) {
-  case 0:
-    ESP_LOGI(TAG_WEBSOCKET, "WebSocket error: %s", data->data_ptr);
+
+  case WEBSOCKET_EVENT_CONNECTED:
+    ESP_LOGI(TAG_WEBSOCKET, "Connected to server");
+    SendSignalRegister();
+    break;
+  case WEBSOCKET_EVENT_DISCONNECTED:
+    ESP_LOGW(TAG_WEBSOCKET, "Disconnected from server");
+    break;
+  case WEBSOCKET_EVENT_DATA:
+    ESP_LOGI(TAG_WEBSOCKET, "EVEN DATA\n");
+    // for (int i = 0; i < data->data_len; i++) {
+    //   printf("%c", (char)data->data_ptr[i]);
+    // }
+    // printf("\n");
+    {
+      size_t len = (size_t)data->data_len;
+      char *json_buf = (char *)malloc(len + 1);
+      if (json_buf) {
+        memcpy(json_buf, data->data_ptr, len);
+        json_buf[len] = '\0';
+
+        cJSON *root = cJSON_Parse(json_buf);
+        if (root) {
+          const cJSON *j_type = cJSON_GetObjectItem(root, "type");
+          const cJSON *j_version = cJSON_GetObjectItem(root, "version");
+          if (cJSON_IsString(j_type)) {
+            strncpy(ws_last_type, j_type->valuestring, sizeof(ws_last_type) - 1);
+            ws_last_type[sizeof(ws_last_type) - 1] = '\0';
+          }
+          if (cJSON_IsString(j_version)) {
+            strncpy(ws_last_version, j_version->valuestring, sizeof(ws_last_version) - 1);
+            ws_last_version[sizeof(ws_last_version) - 1] = '\0';
+            ESP_LOGI(TAG_WEBSOCKET, "Version: %s", ws_last_version);
+            xTaskCreate(FOTA_task, "FOTA Task", 8192, ws_last_version, 10, NULL);
+          }
+          cJSON_Delete(root);
+        }
+        free(json_buf);
+      }
+    }
+    break;
+  case WEBSOCKET_EVENT_ERROR:
+    ESP_LOGE(TAG_WEBSOCKET, "WebSocket error occurred");
     break;
   default:
     break;
@@ -66,6 +110,7 @@ void websocket_app_start(void) {
   ESP_LOGI(TAG_WEBSOCKET, "WebSocket start");
 }
 void WebSocket_Handler(void *pvParameter) {
+  
   while (1) {
     if (is_wifi_connected()) {
       if (client == NULL) {

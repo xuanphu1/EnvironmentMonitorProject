@@ -5,10 +5,8 @@ bool checkChangeStatus = false;
 
 MessageType getMessageType(const char *Json)
 {
-    if (strstr(Json, "\"type\":\"ota\""))
+    if (strstr(Json, "type\":\"ota\""))
         return TYPE_OTA;
-    if (strstr(Json, "\"type\":\"device-status\""))
-        return TYPE_DEVICE_STATUS;
     return TYPE_UNKNOWN;
 }
 

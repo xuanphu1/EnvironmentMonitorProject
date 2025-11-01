@@ -60,6 +60,8 @@ typedef struct
 
   bool isNewFirmware;
 
+  char firmwareVersion[10];
+
 } dataManager_t;
 
 typedef enum

@@ -17,17 +17,16 @@
 #include "esp_system.h"
 #include "esp_ota_ops.h"
 #include "esp_https_ota.h"
+#include "TaskManager.h"
 
 // Function declarations
 esp_err_t check_firmware_version(dataManager_t *DataManager);
-esp_err_t do_manual_http_ota(const char *url, dataManager_t *DataManager);
+esp_err_t do_manual_http_ota(const char *url);
 esp_err_t save_firmware_info(const char *version, const char *filename,dataManager_t *DataManager);
 esp_err_t load_firmware_info(char *version, char *filename,dataManager_t *DataManager);
 esp_err_t init_firmware_info_partition(dataManager_t *DataManager);
+void FOTA_task(void *pvParameters);
 // Hàm debug partition info
 void print_partition_info(void);
-
-extern void suspend_all_tasks_during_fota(void);
-extern void resume_all_tasks_after_fota(void);
 
 #endif // FOTA_MANAGER_H

@@ -8,10 +8,13 @@ let HourlyChartStatus = false;
 let DailyChartStatus = false;
 let hourlyAverages;
 let dailyAverages;
+let HourlyData;
+let DailyData;
 let timePickerInstance = null;
 let isUpdatingUI = false;
 let month, day, hour, year;
 let modeChart = 0;
+let currentChart = null; // Store chart instance
 
 // Proxy for Status Tracking
 const statusProxy = new Proxy({
@@ -258,7 +261,6 @@ const initEventListeners = () => {
     isUpdatingUI = true;
     statusProxy.StatusOTA = !statusProxy.StatusOTA;
     DOM.fotaBtn.classList.toggle('active', statusProxy.StatusOTA);
-    sendUpEvent("OTA", statusProxy.StatusOTA);
     if (DOM.fotaModal) {
       DOM.fotaModal.style.display = statusProxy.StatusOTA ? "block" : "none";
       if (statusProxy.StatusOTA) {
@@ -278,7 +280,6 @@ const initEventListeners = () => {
     isUpdatingUI = true;
     statusProxy.StatusOTA = false;
     DOM.fotaBtn.classList.remove('active');
-    sendUpEvent("OTA", statusProxy.StatusOTA);
     updateUI();
   });
   window.addEventListener('click', (event) => {
@@ -291,7 +292,6 @@ const initEventListeners = () => {
       isUpdatingUI = true;
       statusProxy.StatusOTA = false;
       DOM.fotaBtn.classList.remove('active');
-      sendUpEvent("OTA", statusProxy.StatusOTA);
       updateUI();
     }
   });
@@ -381,14 +381,48 @@ const initEventListeners = () => {
 
 // Export Functions
 const exportChart = () => {
+  // Wait for Highcharts to be fully loaded
   if (typeof Highcharts === 'undefined') {
-    alert('Chart library not loaded!');
+    alert('Chart library chưa được tải! Vui lòng đợi...');
     return;
   }
   
-  const chart = Highcharts.charts[0];
+  // Check if exporting module is loaded
+  if (!Highcharts.Chart.prototype.exportChart) {
+    alert('Export module chưa được tải! Vui lòng tải lại trang.');
+    console.error('Highcharts exporting module not available');
+    return;
+  }
+  
+  // Try multiple methods to get chart instance
+  let chart = currentChart;
+  
+  // If not found, try to find from container
   if (!chart) {
-    alert('No chart available to export!');
+    const container = document.getElementById('chart-container');
+    if (container) {
+      // Find chart by matching container
+      chart = Highcharts.charts.find(ch => ch && ch.container && ch.container.id === 'chart-container');
+    }
+  }
+  
+  // If still not found, try first available chart
+  if (!chart && Highcharts.charts && Highcharts.charts.length > 0) {
+    chart = Highcharts.charts.find(ch => ch !== null && ch !== undefined && ch.renderTo);
+  }
+  
+  if (!chart) {
+    alert('Không tìm thấy biểu đồ để xuất!');
+    console.error('Chart instance not found. Available charts:', Highcharts.charts);
+    console.log('Current chart variable:', currentChart);
+    console.log('Chart container:', document.getElementById('chart-container'));
+    return;
+  }
+  
+  // Verify chart is ready
+  if (!chart.renderTo || !chart.series) {
+    alert('Biểu đồ chưa sẵn sàng để xuất! Vui lòng đợi một chút.');
+    console.error('Chart not ready:', chart);
     return;
   }
   
@@ -397,32 +431,192 @@ const exportChart = () => {
   const dateStr = now.toISOString().split('T')[0];
   const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
   
-  // Export chart as PNG
-  chart.exportChart({
-    type: 'image/png',
-    filename: `sensor-chart-${dateStr}-${timeStr}`
-  });
+  // Get mode name for filename
+  const modeName = modeChart === 0 ? 'Currently' : modeChart === 1 ? 'Hourly' : 'Daily';
+  let modeSuffix = '';
+  if (modeChart === 1 && year && month && day) {
+    modeSuffix = `-${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  } else if (modeChart === 2 && year && month) {
+    modeSuffix = `-${year}-${String(month).padStart(2, '0')}`;
+  }
   
-  console.log('Chart exported successfully!');
+  try {
+    console.log('Exporting chart:', chart);
+    console.log('Filename:', `sensor-chart-${modeName}${modeSuffix}-${dateStr}-${timeStr}`);
+    
+    // Export chart as PNG
+    chart.exportChart({
+      type: 'image/png',
+      filename: `sensor-chart-${modeName}${modeSuffix}-${dateStr}-${timeStr}`,
+      sourceWidth: chart.chartWidth || 1200,
+      sourceHeight: chart.chartHeight || 600
+    });
+    console.log('Chart exported successfully!');
+  } catch (error) {
+    console.error('Error exporting chart:', error);
+    alert('Lỗi khi xuất đồ thị: ' + error.message);
+  }
 };
 
-const exportReport = () => {
-  // Get current sensor data
-  const sensorData = {
-    temperature: TemperatureValue,
-    humidity: HumidityValue,
-    pressure: PressureValue,
-    pm1: PM1Value,
-    pm25: PM25Value,
-    pm10: PM10Value,
-    timestamp: new Date().toISOString(),
-    chartMode: modeChart === 0 ? 'Currently' : modeChart === 1 ? 'Hourly' : 'Daily'
-  };
+const exportReport = async () => {
+  // Get chart image first
+  let chartImage = '';
+  try {
+    if (typeof Highcharts !== 'undefined') {
+      // Try multiple methods to get chart instance
+      let chart = currentChart;
+      
+      if (!chart) {
+        const container = document.getElementById('chart-container');
+        if (container) {
+          chart = Highcharts.charts.find(ch => ch && ch.container && ch.container.id === 'chart-container');
+        }
+      }
+      
+      if (!chart && Highcharts.charts && Highcharts.charts.length > 0) {
+        chart = Highcharts.charts.find(ch => ch !== null && ch !== undefined);
+      }
+      
+      if (chart) {
+        const svg = chart.getSVG();
+        // Convert SVG to data URI (URL encoded for better compatibility)
+        const svgEncoded = encodeURIComponent(svg);
+        chartImage = 'data:image/svg+xml;charset=utf-8,' + svgEncoded;
+      } else {
+        console.warn('Chart instance not found for report export');
+      }
+    }
+  } catch (error) {
+    console.warn('Could not get chart image:', error);
+  }
+  
+  // Get data based on current mode
+  let sensorData = {};
+  let modeName = '';
+  let timeInfo = '';
+  
+  if (modeChart === 0) {
+    // Currently mode - use real-time values
+    modeName = 'Currently';
+    timeInfo = 'Dữ liệu thời gian thực';
+    sensorData = {
+      mode: 'Currently',
+      temperature: TemperatureValue,
+      humidity: HumidityValue,
+      pressure: PressureValue,
+      pm1: PM1Value,
+      pm25: PM25Value,
+      pm10: PM10Value,
+      timestamp: new Date().toISOString(),
+      chartMode: modeName,
+      timeInfo: timeInfo
+    };
+  } else if (modeChart === 1) {
+    // Hourly mode - get hourly averages for selected day
+    modeName = 'Hourly';
+    if (!year || !month || !day) {
+      alert('Vui lòng chọn ngày để xuất báo cáo!');
+      return;
+    }
+    timeInfo = `Ngày ${day}/${month}/${year}`;
+    
+    // Get hourly data for the selected day
+    const hourlyData = generateChartDataFromHourlyAllMetrics();
+    const hourlyValues = [];
+    
+    for (let h = 0; h < 24; h++) {
+      hourlyValues.push({
+        hour: h,
+        temperature: hourlyData.Temperature[h],
+        humidity: hourlyData.Humidity[h],
+        pressure: hourlyData.Pressure[h],
+        pm1: hourlyData.PM1[h],
+        pm25: hourlyData.PM25[h],
+        pm10: hourlyData.PM10[h]
+      });
+    }
+    
+    // Calculate averages
+    const avgTemp = hourlyValues.filter(v => v.temperature !== null).reduce((sum, v) => sum + v.temperature, 0) / hourlyValues.filter(v => v.temperature !== null).length || 0;
+    const avgHumidity = hourlyValues.filter(v => v.humidity !== null).reduce((sum, v) => sum + v.humidity, 0) / hourlyValues.filter(v => v.humidity !== null).length || 0;
+    const avgPressure = hourlyValues.filter(v => v.pressure !== null).reduce((sum, v) => sum + v.pressure, 0) / hourlyValues.filter(v => v.pressure !== null).length || 0;
+    const avgPM1 = hourlyValues.filter(v => v.pm1 !== null).reduce((sum, v) => sum + v.pm1, 0) / hourlyValues.filter(v => v.pm1 !== null).length || 0;
+    const avgPM25 = hourlyValues.filter(v => v.pm25 !== null).reduce((sum, v) => sum + v.pm25, 0) / hourlyValues.filter(v => v.pm25 !== null).length || 0;
+    const avgPM10 = hourlyValues.filter(v => v.pm10 !== null).reduce((sum, v) => sum + v.pm10, 0) / hourlyValues.filter(v => v.pm10 !== null).length || 0;
+    
+    sensorData = {
+      mode: 'Hourly',
+      year: year,
+      month: month,
+      day: day,
+      temperature: avgTemp,
+      humidity: avgHumidity,
+      pressure: avgPressure,
+      pm1: avgPM1,
+      pm25: avgPM25,
+      pm10: avgPM10,
+      timestamp: new Date().toISOString(),
+      chartMode: modeName,
+      timeInfo: timeInfo,
+      hourlyValues: hourlyValues
+    };
+  } else if (modeChart === 2) {
+    // Daily mode - get daily averages for selected month
+    modeName = 'Daily';
+    if (!year || !month) {
+      alert('Vui lòng chọn tháng để xuất báo cáo!');
+      return;
+    }
+    timeInfo = `Tháng ${month}/${year}`;
+    
+    // Get daily data for the selected month
+    const dailyData = generateChartDataFromDailyAllMetrics();
+    const dailyValues = [];
+    
+    for (let d = 1; d <= 31; d++) {
+      dailyValues.push({
+        day: d,
+        temperature: dailyData.Temperature[d - 1],
+        humidity: dailyData.Humidity[d - 1],
+        pressure: dailyData.Pressure[d - 1],
+        pm1: dailyData.PM1[d - 1],
+        pm25: dailyData.PM25[d - 1],
+        pm10: dailyData.PM10[d - 1]
+      });
+    }
+    
+    // Calculate averages
+    const avgTemp = dailyValues.filter(v => v.temperature !== null).reduce((sum, v) => sum + v.temperature, 0) / dailyValues.filter(v => v.temperature !== null).length || 0;
+    const avgHumidity = dailyValues.filter(v => v.humidity !== null).reduce((sum, v) => sum + v.humidity, 0) / dailyValues.filter(v => v.humidity !== null).length || 0;
+    const avgPressure = dailyValues.filter(v => v.pressure !== null).reduce((sum, v) => sum + v.pressure, 0) / dailyValues.filter(v => v.pressure !== null).length || 0;
+    const avgPM1 = dailyValues.filter(v => v.pm1 !== null).reduce((sum, v) => sum + v.pm1, 0) / dailyValues.filter(v => v.pm1 !== null).length || 0;
+    const avgPM25 = dailyValues.filter(v => v.pm25 !== null).reduce((sum, v) => sum + v.pm25, 0) / dailyValues.filter(v => v.pm25 !== null).length || 0;
+    const avgPM10 = dailyValues.filter(v => v.pm10 !== null).reduce((sum, v) => sum + v.pm10, 0) / dailyValues.filter(v => v.pm10 !== null).length || 0;
+    
+    sensorData = {
+      mode: 'Daily',
+      year: year,
+      month: month,
+      temperature: avgTemp,
+      humidity: avgHumidity,
+      pressure: avgPressure,
+      pm1: avgPM1,
+      pm25: avgPM25,
+      pm10: avgPM10,
+      timestamp: new Date().toISOString(),
+      chartMode: modeName,
+      timeInfo: timeInfo,
+      dailyValues: dailyValues
+    };
+  }
+  
+  // Add chart image to sensor data
+  sensorData.chartImage = chartImage;
   
   // Create report content
   const reportContent = generateReportContent(sensorData);
   
-  // Create and download PDF
+  // Create and download report
   downloadReport(reportContent, sensorData);
   
   console.log('Report exported successfully!');
@@ -433,6 +627,58 @@ const generateReportContent = (data) => {
   const dateStr = now.toLocaleDateString('vi-VN');
   const timeStr = now.toLocaleTimeString('vi-VN');
   
+  // Helper function to format number with 2 decimals
+  const formatValue = (value) => {
+    if (value === null || value === undefined || isNaN(value)) return 'N/A';
+    return value.toFixed(2);
+  };
+  
+  // Generate hourly data table if in Hourly mode
+  let hourlyTableRows = '';
+  if (data.mode === 'Hourly' && data.hourlyValues) {
+    data.hourlyValues.forEach(hourData => {
+      hourlyTableRows += `
+        <tr>
+          <td>${String(hourData.hour).padStart(2, '0')}:00</td>
+          <td>${formatValue(hourData.temperature)}</td>
+          <td>${formatValue(hourData.humidity)}</td>
+          <td>${formatValue(hourData.pressure)}</td>
+          <td>${formatValue(hourData.pm1)}</td>
+          <td>${formatValue(hourData.pm25)}</td>
+          <td>${formatValue(hourData.pm10)}</td>
+        </tr>
+      `;
+    });
+  }
+  
+  // Generate daily data table if in Daily mode
+  let dailyTableRows = '';
+  if (data.mode === 'Daily' && data.dailyValues) {
+    data.dailyValues.forEach(dayData => {
+      if (dayData.temperature !== null || dayData.humidity !== null) {
+        dailyTableRows += `
+          <tr>
+            <td>Ngày ${dayData.day}</td>
+            <td>${formatValue(dayData.temperature)}</td>
+            <td>${formatValue(dayData.humidity)}</td>
+            <td>${formatValue(dayData.pressure)}</td>
+            <td>${formatValue(dayData.pm1)}</td>
+            <td>${formatValue(dayData.pm25)}</td>
+            <td>${formatValue(dayData.pm10)}</td>
+          </tr>
+        `;
+      }
+    });
+  }
+  
+  // Chart image HTML
+  const chartImageHtml = data.chartImage ? `
+    <div class="chart-image" style="margin: 20px 0; text-align: center;">
+      <h3>Biểu Đồ Dữ Liệu</h3>
+      <img src="${data.chartImage}" alt="Chart" style="max-width: 100%; height: auto; border: 1px solid #ddd; padding: 10px; background: white;" />
+    </div>
+  ` : '<p style="color: #999;">Không thể xuất hình ảnh biểu đồ</p>';
+  
   return `
     <!DOCTYPE html>
     <html>
@@ -440,84 +686,136 @@ const generateReportContent = (data) => {
       <meta charset="UTF-8">
       <title>Sensor Data Report</title>
       <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .header { text-align: center; margin-bottom: 30px; }
-        .data-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; }
+        .header { text-align: center; margin-bottom: 30px; border-bottom: 3px solid #4CAF50; padding-bottom: 20px; }
+        .header h1 { color: #2c3e50; margin-bottom: 10px; }
+        .data-table { width: 100%; border-collapse: collapse; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .data-table th, .data-table td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-        .data-table th { background-color: #f2f2f2; }
-        .summary { background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0; }
+        .data-table th { background-color: #4CAF50; color: white; font-weight: bold; }
+        .data-table tr:nth-child(even) { background-color: #f9f9f9; }
+        .data-table tr:hover { background-color: #f5f5f5; }
+        .summary { background-color: #e8f5e9; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #4CAF50; }
         .chart-info { margin: 20px 0; padding: 15px; background-color: #e3f2fd; border-radius: 5px; }
+        .chart-image { page-break-inside: avoid; }
+        .footer { margin-top: 30px; text-align: center; color: #666; padding-top: 20px; border-top: 1px solid #ddd; }
       </style>
     </head>
     <body>
       <div class="header">
         <h1>Báo Cáo Dữ Liệu Cảm Biến</h1>
-        <p>Ngày: ${dateStr} - Thời gian: ${timeStr}</p>
+        <p><strong>Ngày xuất báo cáo:</strong> ${dateStr} - ${timeStr}</p>
+        <p><strong>Chế độ hiển thị:</strong> ${data.chartMode} - ${data.timeInfo || ''}</p>
       </div>
       
       <div class="summary">
         <h2>Tóm Tắt Dữ Liệu</h2>
-        <p>Chế độ hiển thị: ${data.chartMode}</p>
-        <p>Thời gian xuất báo cáo: ${data.timestamp}</p>
+        <p><strong>Thời gian xuất báo cáo:</strong> ${new Date(data.timestamp).toLocaleString('vi-VN')}</p>
+        ${data.timeInfo ? `<p><strong>Khoảng thời gian:</strong> ${data.timeInfo}</p>` : ''}
+        <table class="data-table" style="margin-top: 15px;">
+          <thead>
+            <tr>
+              <th>Thông Số</th>
+              <th>Giá Trị Trung Bình</th>
+              <th>Đơn Vị</th>
+              <th>Trạng Thái</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Nhiệt Độ</td>
+              <td>${formatValue(data.temperature)}</td>
+              <td>°C</td>
+              <td>${data.temperature > 30 ? 'Cao' : data.temperature < 10 ? 'Thấp' : 'Bình thường'}</td>
+            </tr>
+            <tr>
+              <td>Độ Ẩm</td>
+              <td>${formatValue(data.humidity)}</td>
+              <td>%</td>
+              <td>${data.humidity > 80 ? 'Cao' : data.humidity < 30 ? 'Thấp' : 'Bình thường'}</td>
+            </tr>
+            <tr>
+              <td>Áp Suất</td>
+              <td>${formatValue(data.pressure)}</td>
+              <td>hPa</td>
+              <td>${data.pressure > 1020 ? 'Cao' : data.pressure < 980 ? 'Thấp' : 'Bình thường'}</td>
+            </tr>
+            <tr>
+              <td>PM1.0</td>
+              <td>${formatValue(data.pm1)}</td>
+              <td>μg/m³</td>
+              <td>${data.pm1 > 25 ? 'Cao' : data.pm1 < 10 ? 'Thấp' : 'Bình thường'}</td>
+            </tr>
+            <tr>
+              <td>PM2.5</td>
+              <td>${formatValue(data.pm25)}</td>
+              <td>μg/m³</td>
+              <td>${data.pm25 > 25 ? 'Cao' : data.pm25 < 10 ? 'Thấp' : 'Bình thường'}</td>
+            </tr>
+            <tr>
+              <td>PM10</td>
+              <td>${formatValue(data.pm10)}</td>
+              <td>μg/m³</td>
+              <td>${data.pm10 > 50 ? 'Cao' : data.pm10 < 20 ? 'Thấp' : 'Bình thường'}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
       
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Thông Số</th>
-            <th>Giá Trị</th>
-            <th>Đơn Vị</th>
-            <th>Trạng Thái</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Nhiệt Độ</td>
-            <td>${data.temperature.toFixed(2)}</td>
-            <td>°C</td>
-            <td>${data.temperature > 30 ? 'Cao' : data.temperature < 10 ? 'Thấp' : 'Bình thường'}</td>
-          </tr>
-          <tr>
-            <td>Độ Ẩm</td>
-            <td>${data.humidity.toFixed(2)}</td>
-            <td>%</td>
-            <td>${data.humidity > 80 ? 'Cao' : data.humidity < 30 ? 'Thấp' : 'Bình thường'}</td>
-          </tr>
-          <tr>
-            <td>Áp Suất</td>
-            <td>${data.pressure.toFixed(2)}</td>
-            <td>hPa</td>
-            <td>${data.pressure > 1020 ? 'Cao' : data.pressure < 980 ? 'Thấp' : 'Bình thường'}</td>
-          </tr>
-          <tr>
-            <td>PM1.0</td>
-            <td>${data.pm1.toFixed(2)}</td>
-            <td>μg/m³</td>
-            <td>${data.pm1 > 25 ? 'Cao' : data.pm1 < 10 ? 'Thấp' : 'Bình thường'}</td>
-          </tr>
-          <tr>
-            <td>PM2.5</td>
-            <td>${data.pm25.toFixed(2)}</td>
-            <td>μg/m³</td>
-            <td>${data.pm25 > 25 ? 'Cao' : data.pm25 < 10 ? 'Thấp' : 'Bình thường'}</td>
-          </tr>
-          <tr>
-            <td>PM10</td>
-            <td>${data.pm10.toFixed(2)}</td>
-            <td>μg/m³</td>
-            <td>${data.pm10 > 50 ? 'Cao' : data.pm10 < 20 ? 'Thấp' : 'Bình thường'}</td>
-          </tr>
-        </tbody>
-      </table>
+      ${chartImageHtml}
+      
+      ${data.mode === 'Hourly' && hourlyTableRows ? `
+        <div class="chart-info">
+          <h3>Dữ Liệu Theo Giờ - Ngày ${data.day}/${data.month}/${data.year}</h3>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Giờ</th>
+                <th>Nhiệt Độ (°C)</th>
+                <th>Độ Ẩm (%)</th>
+                <th>Áp Suất (hPa)</th>
+                <th>PM1.0 (μg/m³)</th>
+                <th>PM2.5 (μg/m³)</th>
+                <th>PM10 (μg/m³)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${hourlyTableRows}
+            </tbody>
+          </table>
+        </div>
+      ` : ''}
+      
+      ${data.mode === 'Daily' && dailyTableRows ? `
+        <div class="chart-info">
+          <h3>Dữ Liệu Theo Ngày - Tháng ${data.month}/${data.year}</h3>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Ngày</th>
+                <th>Nhiệt Độ (°C)</th>
+                <th>Độ Ẩm (%)</th>
+                <th>Áp Suất (hPa)</th>
+                <th>PM1.0 (μg/m³)</th>
+                <th>PM2.5 (μg/m³)</th>
+                <th>PM10 (μg/m³)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${dailyTableRows}
+            </tbody>
+          </table>
+        </div>
+      ` : ''}
       
       <div class="chart-info">
         <h3>Thông Tin Biểu Đồ</h3>
-        <p>Biểu đồ được xuất ở chế độ: ${data.chartMode}</p>
-        <p>Dữ liệu được cập nhật theo thời gian thực</p>
+        <p><strong>Chế độ:</strong> ${data.chartMode}</p>
+        <p><strong>Khoảng thời gian:</strong> ${data.timeInfo || 'Dữ liệu thời gian thực'}</p>
       </div>
       
-      <div style="margin-top: 30px; text-align: center; color: #666;">
-        <p>Báo cáo được tạo tự động bởi hệ thống giám sát cảm biến</p>
+      <div class="footer">
+        <p>Báo cáo được tạo tự động bởi hệ thống giám sát cảm biến môi trường</p>
+        <p style="font-size: 12px; color: #999;">© ${new Date().getFullYear()} - Environment Monitor System</p>
       </div>
     </body>
     </html>
@@ -529,10 +827,23 @@ const downloadReport = (content, data) => {
   const blob = new Blob([content], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   
+  // Generate filename based on mode
+  const now = new Date();
+  const dateStr = now.toISOString().split('T')[0];
+  const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+  
+  let filename = `sensor-report-${data.chartMode}-`;
+  if (data.mode === 'Hourly' && data.year && data.month && data.day) {
+    filename += `${data.year}-${String(data.month).padStart(2, '0')}-${String(data.day).padStart(2, '0')}-`;
+  } else if (data.mode === 'Daily' && data.year && data.month) {
+    filename += `${data.year}-${String(data.month).padStart(2, '0')}-`;
+  }
+  filename += `${dateStr}-${timeStr}.html`;
+  
   // Create download link
   const link = document.createElement('a');
   link.href = url;
-  link.download = `sensor-report-${data.timestamp.split('T')[0]}.html`;
+  link.download = filename;
   
   // Trigger download
   document.body.appendChild(link);
@@ -556,20 +867,6 @@ const fetchFirmwareVersions = () => {
 };
 
 
-const sendUpEvent = (Device, StatusDevice) => {
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({
-      type: 'device-status',
-      device: typeof Device === 'string' ? Device : String(Device),
-      status: StatusDevice
-    }));
-    console.log(`📡 Sent device-status via WebSocket: ${Device} = ${StatusDevice}`);
-  } else {
-    console.warn("⚠️ WebSocket not open, retrying in 500ms...");
-    setTimeout(() => sendUpEvent(Device, StatusDevice), 500);
-  }
-};
-
 const sendUploadEventToServer = (version) => {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: 'ota', version }));
@@ -580,25 +877,7 @@ const sendUploadEventToServer = (version) => {
   }
 };
 
-const syncData = () => {
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'sync-request' }));
-    console.log("📡 Sent sync-request via WebSocket");
-  } else {
-    console.warn("⚠️ WebSocket not open, retrying in 500ms...");
-    setTimeout(syncData, 500);
-  }
-};
 
-const sendResetCommandToServer = () => {
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'reset-all' }));
-    console.log("📡 Sent reset-all via WebSocket");
-  } else {
-    console.warn("⚠️ WebSocket not open, retrying in 500ms...");
-    setTimeout(sendResetCommandToServer, 500);
-  }
-};
 
 const fetchRealTimeDataHourly = () => {
   if (socket.readyState === WebSocket.OPEN) {
@@ -836,7 +1115,8 @@ const initHighcharts = () => {
       title = '';
     }
     console.log('Creating Highcharts chart...');
-    Highcharts.chart('chart-container', {
+    // Store chart instance
+    currentChart = Highcharts.chart('chart-container', {
       chart: {
         type: 'spline',
         events: isLive ? { load: onChartLoad } : undefined
@@ -856,7 +1136,14 @@ const initHighcharts = () => {
         pointFormat: '{point.x:%Y-%m-%d}<br/>{point.y:.2f}'
       },
       legend: { enabled: true },
-      exporting: { enabled: false },
+      exporting: { 
+        enabled: true,
+        buttons: {
+          contextButton: {
+            enabled: false // Hide default export button, we use custom button
+          }
+        }
+      },
       series: [
         { name: 'Temperature (°C)', lineWidth: 2, color: 'red', data: seriesDataFunc.Temperature },
         { name: 'Humidity (%)', lineWidth: 2, color: 'blue', data: seriesDataFunc.Humidity, visible: false },
@@ -1083,7 +1370,6 @@ const init = () => {
   }, 500);
   
   fetchWeather(LOCATION);
-  syncData();
 };
 
 // WebSocket Message Handling
@@ -1094,7 +1380,10 @@ socket.onmessage = (event) => {
     switch (data.type) {
       case 'status-all':
         const status = data.data || {};
-        statusProxy.StatusOTA = status.OTA || false;
+        // Chỉ cập nhật StatusOTA nếu backend gửi trường OTA, tránh auto-đóng modal
+        if (Object.prototype.hasOwnProperty.call(status, 'OTA')) {
+          statusProxy.StatusOTA = !!status.OTA;
+        }
         if ('Temperature' in status) TemperatureValue = parseFloat(status.Temperature);
         if ('Humidity' in status) HumidityValue = parseFloat(status.Humidity);
         if ('Pressure' in status) PressureValue = parseFloat(status.Pressure);
@@ -1199,6 +1488,42 @@ socket.onmessage = (event) => {
               downloadButton.addEventListener('click', () => {
                 downloadFirmware(firmware.version);
               });
+
+              const deleteButton = document.createElement('button');
+              deleteButton.className = 'btn-upload';
+              deleteButton.style.backgroundColor = '#e74c3c';
+              deleteButton.innerHTML = '<i class="fas fa-trash"></i> Delete';
+              deleteButton.addEventListener('click', async () => {
+                if (!confirm(`Xóa firmware version "${firmware.version}"?`)) return;
+                try {
+                  const res = await fetch(`/api/firmware/${encodeURIComponent(firmware.version)}`, {
+                    method: 'DELETE',
+                    headers: { 'Accept': 'application/json' }
+                  });
+                  const contentType = res.headers.get('content-type') || '';
+                  let payload;
+                  if (contentType.includes('application/json')) {
+                    payload = await res.json();
+                  } else {
+                    payload = await res.text();
+                  }
+                  if (!res.ok) {
+                    const message = typeof payload === 'string' ? payload : (payload?.message || 'Xóa thất bại');
+                    alert(message);
+                    return;
+                  }
+                  const success = typeof payload === 'object' ? payload.success !== false : true;
+                  if (success) {
+                    fetchFirmwareVersions();
+                  } else {
+                    const message = typeof payload === 'object' ? (payload.message || 'Xóa thất bại') : 'Xóa thất bại';
+                    alert(message);
+                  }
+                } catch (err) {
+                  console.error('Delete firmware error:', err);
+                  alert('Lỗi khi xóa firmware');
+                }
+              });
               
               const uploadButton = document.createElement('button');
               uploadButton.className = 'btn-upload';
@@ -1212,10 +1537,30 @@ socket.onmessage = (event) => {
                   uploadStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang tiến hành OTA...';
                   uploadStatus.style.color = 'orange';
                 }
+                
+                // Sau 10 giây tự động đóng modal FOTA
+                setTimeout(() => {
+                  isUpdatingUI = true;
+                  statusProxy.StatusOTA = false;
+                  if (DOM.fotaBtn) {
+                    DOM.fotaBtn.classList.remove('active');
+                  }
+                  if (DOM.fotaModal) {
+                    DOM.fotaModal.style.display = 'none';
+                  }
+                  // Reset dòng chữ "Đang tiến hành OTA..."
+                  const uploadStatus = document.getElementById('upload-status');
+                  if (uploadStatus) {
+                    uploadStatus.innerHTML = '';
+                    uploadStatus.style.color = '';
+                  }
+                  console.log('Modal FOTA đã tự động đóng sau 10 giây');
+                }, 10000);
               });
               
               versionActions.appendChild(downloadButton);
               versionActions.appendChild(uploadButton);
+              versionActions.appendChild(deleteButton);
               li.appendChild(versionActions);
               
               ul.appendChild(li);

@@ -13,7 +13,8 @@ const {
   getRealTimeData,
   saveRealTimeData,
   saveFirmware,
-  getFirmwareByVersion
+  getFirmwareByVersion,
+  deleteFirmwareByVersion
 } = require("./models/mongodb");
 const { Console } = require('console');
 
@@ -160,6 +161,22 @@ app.get('/api/firmware/info/:version', async (req, res) => {
   }
 });
 
+// Delete firmware by version
+app.delete('/api/firmware/:version', async (req, res) => {
+  try {
+    const { version } = req.params;
+    const { deletedCount } = await deleteFirmwareByVersion(version);
+    if (deletedCount === 0) {
+      return res.status(404).json({ success: false, message: `Không tìm thấy firmware version: ${version}` });
+    }
+    console.log(`🗑️ Deleted firmware version: ${version}`);
+    res.json({ success: true, message: 'Đã xóa firmware', version });
+  } catch (error) {
+    console.error('❌ Delete firmware error:', error);
+    res.status(500).json({ success: false, message: 'Lỗi khi xóa firmware: ' + error.message });
+  }
+});
+
 const port = 3000;
 app.listen(port, () => {
   console.log(`Server is running at http://localhost:${port}`);
@@ -205,6 +222,32 @@ wss.on('connection', (ws) => {
 
           case 'ota':
             console.log("OTA event received. Version:", data.version);
+
+            // Gửi thông tin OTA đến ESP32 - chỉ gửi version
+            const otaStartMessage = {
+              type: 'ota-start',
+              version: data.version
+            };
+
+            // Gửi tới ESP32
+            clients.forEach((clientType, client) => {
+              if (client.readyState === WebSocket.OPEN && clientType === 'esp32') {
+                client.send(JSON.stringify(otaStartMessage));
+                console.log(`📤 Sent OTA start message to ESP32: ${JSON.stringify(otaStartMessage)}`);
+              }
+            });
+
+            // Gửi tới frontend để hiển thị
+            clients.forEach((clientType, client) => {
+              if (client.readyState === WebSocket.OPEN && clientType === 'frontend') {
+                client.send(JSON.stringify({ type: 'ota-start', version: data.version }));
+              }
+            });
+
+            break;
+
+          case 'ota-upload':
+            console.log("OTA upload event received. Version:", data.version);
 
             (async () => {
               try {

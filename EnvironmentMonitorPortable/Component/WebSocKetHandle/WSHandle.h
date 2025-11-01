@@ -6,8 +6,8 @@
 #include "esp_websocket_client.h"
 #include "DataManager.h"
 #include "wifiManager.h"
-
-
+#include "FOTAManager.h"
+#include "JsonHandle.h"
 
 void SendSignalRegister(void);
 void DataToSever(dataManager_t *Datamanager);
